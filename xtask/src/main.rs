@@ -65,7 +65,11 @@ async fn main() -> Result<()> {
             let latest = get_latest_version().await;
             info!("Latest version: {latest}");
 
-            if current == latest {
+            let output_dir = PathBuf::from(var("CARGO_WORKSPACE_DIR")?).join("assets");
+            let table_file = output_dir.join("emoji.json");
+            let reverse_table_file = output_dir.join("emoji_reverse.json");
+
+            if current == latest && table_file.exists() && reverse_table_file.exists() {
                 info!("The data is up-to-date. Finished.");
                 return Ok(());
             }
@@ -75,26 +79,37 @@ async fn main() -> Result<()> {
                 .await?
                 .bytes()
                 .await?;
-            info!("Downloaded the emoji data: {:.2} MB", blob.len() as f64 / 1024.0 / 1024.0);
+            info!(
+                "Downloaded the emoji data: {:.2} MB",
+                blob.len() as f64 / 1024.0 / 1024.0
+            );
 
-            let emojis = from_slice::<Vec<Emoji>>(&blob)?
-                .into_iter()
-                .flat_map(|emoji| {
-                    emoji
-                        .short_names
-                        .into_iter()
-                        .map(|name| (format!(":{name}:"), to_emoji(&emoji.unified)))
-                        .collect::<Vec<(String, String)>>()
-                })
-                .collect::<BTreeMap<String, String>>();
+            let mut emojis = BTreeMap::new();
+            let mut reverse = BTreeMap::new();
+            for emoji in from_slice::<Vec<Emoji>>(&blob)? {
+                let unicode = to_emoji(&emoji.unified);
+                // Only single-codepoint emoji (optionally followed by FE0F) are reversible;
+                // keycaps, flags, and ZWJ sequences are truncated by to_emoji and would map
+                // plain text like '#' or lone regional indicators to shortcodes. The
+                // canonical short_name wins on first-codepoint collisions.
+                if is_reversible(&emoji.unified) {
+                    reverse
+                        .entry(unicode.clone())
+                        .or_insert(format!(":{}:", emoji.short_name));
+                }
+                for name in emoji.short_names {
+                    emojis.insert(format!(":{name}:"), unicode.clone());
+                }
+            }
 
-            let output_dir = PathBuf::from(var("CARGO_WORKSPACE_DIR")?).join("assets");
             create_dir_all(&output_dir).await?;
             info!("Created the output directory: {output_dir:?}");
 
-            let output_file = output_dir.join("emoji.json");
-            write(&output_file, to_string_pretty(&emojis)?).await?;
-            info!("Finished writing the emoji table: {output_file:?}");
+            write(&table_file, to_string_pretty(&emojis)?).await?;
+            info!("Finished writing the emoji table: {table_file:?}");
+
+            write(&reverse_table_file, to_string_pretty(&reverse)?).await?;
+            info!("Finished writing the reverse emoji table: {reverse_table_file:?}");
 
             write(&local_version_file, &latest.to_string()).await?;
             info!("Updated the local version file: {local_version_file:?}");
@@ -104,6 +119,14 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// A unified sequence is reversible when it is a single codepoint, optionally followed by
+/// a variation selector (FE0F). Anything longer is truncated by `to_emoji`.
+fn is_reversible(unified: &str) -> bool {
+    let mut parts = unified.split('-');
+    parts.next();
+    parts.all(|c| c == "FE0F")
 }
 
 #[inline(always)]
