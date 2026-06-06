@@ -6,8 +6,9 @@ use log::info;
 use reqwest::{get, Client};
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::from_slice;
+use serde_json::{from_slice, to_string_pretty};
 use tokio::fs::{create_dir_all, read_to_string, write};
+use tracing_subscriber::fmt::init;
 
 #[derive(Parser)]
 #[clap(about, version)]
@@ -46,7 +47,7 @@ where
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    init();
     let args = Args::parse();
     match args.command {
         Command::BuildEmojiTable => {
@@ -92,7 +93,7 @@ async fn main() -> Result<()> {
             info!("Created the output directory: {output_dir:?}");
 
             let output_file = output_dir.join("emoji.json");
-            write(&output_file, serde_json::to_string_pretty(&emojis)?).await?;
+            write(&output_file, to_string_pretty(&emojis)?).await?;
             info!("Finished writing the emoji table: {output_file:?}");
 
             write(&local_version_file, &latest.to_string()).await?;
