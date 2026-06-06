@@ -21,12 +21,12 @@ where
         let mut last = 0;
 
         for cap in RE_EMOJI.captures_iter(s) {
-            if let Some(m) = cap.get(0) {
-                if let Some(emoji) = TABLE.get(m.as_str()) {
-                    new_text.push_str(&s[last..m.start()]);
-                    new_text.push_str(emoji);
-                    last = m.end();
-                }
+            if let Some(m) = cap.get(0)
+                && let Some(emoji) = TABLE.get(m.as_str())
+            {
+                new_text.push_str(&s[last..m.start()]);
+                new_text.push_str(emoji);
+                last = m.end();
             }
         }
 
